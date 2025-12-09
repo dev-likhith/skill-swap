@@ -1,0 +1,259 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Upload, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+export default function CreateVideoModal({ onClose, userId, userName }) {
+  const queryClient = useQueryClient();
+  const [formData, setFormData] = useState({
+    title: "",
+    description: "",
+    category: "programming",
+    difficulty_level: "beginner",
+    base_credits: 50,
+    support_credits: 10,
+    duration_minutes: 30,
+    tags: "",
+  });
+  const [videoFile, setVideoFile] = useState(null);
+  const [thumbnailFile, setThumbnailFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const createVideo = useMutation({
+    mutationFn: async () => {
+      let videoUrl = "";
+      let thumbnailUrl = "";
+
+      // Upload files first
+      if (videoFile) {
+        const videoUpload = await base44.integrations.Core.UploadFile({ file: videoFile });
+        videoUrl = videoUpload.file_url;
+      }
+
+      if (thumbnailFile) {
+        const thumbnailUpload = await base44.integrations.Core.UploadFile({ file: thumbnailFile });
+        thumbnailUrl = thumbnailUpload.file_url;
+      }
+
+      // Create video entity with file URLs
+      const video = await base44.entities.Video.create({
+        ...formData,
+        provider_id: userId,
+        provider_name: userName,
+        video_url: videoUrl,
+        thumbnail_url: thumbnailUrl,
+        tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
+        status: 'published',
+      });
+
+      return video;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myVideos'] });
+      queryClient.invalidateQueries({ queryKey: ['videos'] });
+      setIsUploading(false);
+      onClose();
+    },
+    onError: (err) => {
+      setError(err.message || "Failed to create course");
+      setIsUploading(false);
+    },
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.title || !formData.description) {
+      setError("Title and description are required");
+      return;
+    }
+    setIsUploading(true);
+    setError(null);
+    createVideo.mutate();
+  };
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create New Course</DialogTitle>
+        </DialogHeader>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="title">Course Title *</Label>
+            <Input
+              id="title"
+              value={formData.title}
+              onChange={(e) => setFormData({...formData, title: e.target.value})}
+              placeholder="e.g., Introduction to React"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="description">Description *</Label>
+            <Textarea
+              id="description"
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Describe what students will learn..."
+              rows={4}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="category">Category</Label>
+              <Select value={formData.category} onValueChange={(value) => setFormData({...formData, category: value})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="programming">Programming</SelectItem>
+                  <SelectItem value="design">Design</SelectItem>
+                  <SelectItem value="business">Business</SelectItem>
+                  <SelectItem value="marketing">Marketing</SelectItem>
+                  <SelectItem value="data_science">Data Science</SelectItem>
+                  <SelectItem value="languages">Languages</SelectItem>
+                  <SelectItem value="music">Music</SelectItem>
+                  <SelectItem value="fitness">Fitness</SelectItem>
+                  <SelectItem value="cooking">Cooking</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="difficulty">Difficulty Level</Label>
+              <Select value={formData.difficulty_level} onValueChange={(value) => setFormData({...formData, difficulty_level: value})}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="beginner">Beginner</SelectItem>
+                  <SelectItem value="intermediate">Intermediate</SelectItem>
+                  <SelectItem value="advanced">Advanced</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="base_credits">Base Price (Credits)</Label>
+              <Input
+                id="base_credits"
+                type="number"
+                min="1"
+                value={formData.base_credits}
+                onChange={(e) => setFormData({...formData, base_credits: parseInt(e.target.value)})}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="support_credits">Support Add-on</Label>
+              <Input
+                id="support_credits"
+                type="number"
+                min="0"
+                value={formData.support_credits}
+                onChange={(e) => setFormData({...formData, support_credits: parseInt(e.target.value)})}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="duration">Duration (min)</Label>
+              <Input
+                id="duration"
+                type="number"
+                min="1"
+                value={formData.duration_minutes}
+                onChange={(e) => setFormData({...formData, duration_minutes: parseInt(e.target.value)})}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tags">Tags (comma separated)</Label>
+            <Input
+              id="tags"
+              value={formData.tags}
+              onChange={(e) => setFormData({...formData, tags: e.target.value})}
+              placeholder="react, javascript, web development"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="video">Video File (optional)</Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="video"
+                type="file"
+                accept="video/*"
+                onChange={(e) => setVideoFile(e.target.files[0])}
+              />
+              {videoFile && <span className="text-sm text-green-600">✓ Selected</span>}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="thumbnail">Thumbnail Image (optional)</Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="thumbnail"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setThumbnailFile(e.target.files[0])}
+              />
+              {thumbnailFile && <span className="text-sm text-green-600">✓ Selected</span>}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={isUploading}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={isUploading}
+              className="bg-gradient-to-r from-orange-500 to-amber-500"
+            >
+              {isUploading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Create Course
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
