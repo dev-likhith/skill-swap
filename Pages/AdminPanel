@@ -1,0 +1,325 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ShieldCheck,
+  Users,
+  Video,
+  CreditCard,
+  CheckCircle,
+  XCircle,
+  ExternalLink
+} from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+export default function AdminPanel() {
+  const queryClient = useQueryClient();
+  const [selectedTab, setSelectedTab] = useState("users");
+
+  const { data: currentUser } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: allUsers } = useQuery({
+    queryKey: ['allUsers'],
+    queryFn: () => base44.entities.User.list(),
+    initialData: [],
+  });
+
+  const { data: allVideos } = useQuery({
+    queryKey: ['allVideos'],
+    queryFn: () => base44.entities.Video.list('-created_date'),
+    initialData: [],
+  });
+
+  const { data: allTransactions } = useQuery({
+    queryKey: ['allTransactions'],
+    queryFn: () => base44.entities.Transaction.list('-created_date', 50),
+    initialData: [],
+  });
+
+  const verifyProvider = useMutation({
+    mutationFn: async (userId) => {
+      // Note: We can't directly update other users with base44.entities.User.update
+      // In a real app, this would be an admin-only API call
+      // For now, we'll show this is where the verification would happen
+      alert(`User verification would be processed here. In production, this requires backend admin privileges.`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['allUsers'] });
+    },
+  });
+
+  if (!currentUser || currentUser.role !== 'admin') {
+    return (
+      <div className="min-h-screen p-8 flex items-center justify-center">
+        <Alert variant="destructive" className="max-w-md">
+          <XCircle className="w-4 h-4" />
+          <AlertDescription>
+            Access denied. Admin privileges required.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  const pendingVerifications = allUsers.filter(u => u.credentials_url && !u.verified_provider);
+  const verifiedProviders = allUsers.filter(u => u.verified_provider);
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center gap-3 mb-8">
+          <ShieldCheck className="w-8 h-8 text-orange-500" />
+          <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-gray-600">Total Users</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-blue-600">{allUsers.length}</div>
+                <Users className="w-8 h-8 text-blue-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-gray-600">Total Courses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-purple-600">{allVideos.length}</div>
+                <Video className="w-8 h-8 text-purple-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-green-200 bg-gradient-to-br from-green-50 to-emerald-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-gray-600">Verified Providers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-green-600">{verifiedProviders.length}</div>
+                <CheckCircle className="w-8 h-8 text-green-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm text-gray-600">Pending Reviews</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-orange-600">{pendingVerifications.length}</div>
+                <ShieldCheck className="w-8 h-8 text-orange-500" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabs */}
+        <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="users">Users</TabsTrigger>
+            <TabsTrigger value="videos">Courses</TabsTrigger>
+            <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="users" className="mt-6">
+            <Card className="border-orange-100 shadow-lg">
+              <CardHeader>
+                <CardTitle>User Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pendingVerifications.length > 0 && (
+                  <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <h4 className="font-semibold text-yellow-800 mb-3">
+                      Pending Verifications ({pendingVerifications.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {pendingVerifications.map((user) => (
+                        <div key={user.id} className="flex items-center justify-between p-3 bg-white rounded-lg">
+                          <div>
+                            <p className="font-medium">{user.full_name}</p>
+                            <p className="text-sm text-gray-500">{user.email}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <a href={user.credentials_url} target="_blank" rel="noopener noreferrer">
+                              <Button variant="outline" size="sm">
+                                <ExternalLink className="w-4 h-4 mr-2" />
+                                View
+                              </Button>
+                            </a>
+                            <Button
+                              size="sm"
+                              onClick={() => verifyProvider.mutate(user.id)}
+                              className="bg-green-500 hover:bg-green-600"
+                            >
+                              <CheckCircle className="w-4 h-4 mr-2" />
+                              Approve
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Credits</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allUsers.map((user) => (
+                        <TableRow key={user.id}>
+                          <TableCell className="font-medium">{user.full_name}</TableCell>
+                          <TableCell>{user.email}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{user.role}</Badge>
+                          </TableCell>
+                          <TableCell>{user.wallet_credits || 0}</TableCell>
+                          <TableCell>
+                            {user.verified_provider && (
+                              <Badge className="bg-green-100 text-green-700">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Verified
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="videos" className="mt-6">
+            <Card className="border-orange-100 shadow-lg">
+              <CardHeader>
+                <CardTitle>Course Management</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Price</TableHead>
+                        <TableHead>Students</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allVideos.map((video) => (
+                        <TableRow key={video.id}>
+                          <TableCell className="font-medium">{video.title}</TableCell>
+                          <TableCell>{video.provider_name}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">
+                              {video.category.replace(/_/g, ' ')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{video.base_credits} credits</TableCell>
+                          <TableCell>{video.total_purchases || 0}</TableCell>
+                          <TableCell>
+                            <Badge
+                              className={
+                                video.status === 'published'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-yellow-100 text-yellow-700'
+                              }
+                            >
+                              {video.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="transactions" className="mt-6">
+            <Card className="border-orange-100 shadow-lg">
+              <CardHeader>
+                <CardTitle>Recent Transactions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>User</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {allTransactions.map((txn) => (
+                        <TableRow key={txn.id}>
+                          <TableCell>
+                            {new Date(txn.created_date).toLocaleDateString()}
+                          </TableCell>
+                          <TableCell className="text-sm">{txn.user_id.slice(0, 8)}...</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{txn.transaction_type}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <span className={txn.amount > 0 ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                              {txn.amount > 0 ? '+' : ''}{txn.amount}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm">{txn.description}</TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">{txn.status}</Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}

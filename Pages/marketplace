@@ -1,0 +1,216 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { Search, Filter, Star, Clock, Users, Sparkles, TrendingUp } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const categoryColors = {
+  programming: "bg-blue-100 text-blue-700 border-blue-200",
+  design: "bg-purple-100 text-purple-700 border-purple-200",
+  business: "bg-green-100 text-green-700 border-green-200",
+  marketing: "bg-pink-100 text-pink-700 border-pink-200",
+  data_science: "bg-indigo-100 text-indigo-700 border-indigo-200",
+  languages: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  music: "bg-red-100 text-red-700 border-red-200",
+  fitness: "bg-orange-100 text-orange-700 border-orange-200",
+  cooking: "bg-amber-100 text-amber-700 border-amber-200",
+  other: "bg-gray-100 text-gray-700 border-gray-200"
+};
+
+export default function Marketplace() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [sortBy, setSortBy] = useState("newest");
+
+  const { data: videos, isLoading } = useQuery({
+    queryKey: ['videos'],
+    queryFn: () => base44.entities.Video.filter({ status: 'published' }, '-created_date'),
+    initialData: [],
+  });
+
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  // Filter and sort videos
+  let filteredVideos = videos.filter(video => {
+    const matchesSearch = video.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         video.description.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || video.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  if (sortBy === "popular") {
+    filteredVideos = [...filteredVideos].sort((a, b) => (b.total_purchases || 0) - (a.total_purchases || 0));
+  } else if (sortBy === "rating") {
+    filteredVideos = [...filteredVideos].sort((a, b) => (b.average_rating || 0) - (a.average_rating || 0));
+  } else if (sortBy === "price_low") {
+    filteredVideos = [...filteredVideos].sort((a, b) => a.base_credits - b.base_credits);
+  } else if (sortBy === "price_high") {
+    filteredVideos = [...filteredVideos].sort((a, b) => b.base_credits - a.base_credits);
+  }
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Hero Section */}
+        <div className="mb-8 p-8 bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 rounded-2xl text-white shadow-xl">
+          <div className="flex items-center gap-3 mb-3">
+            <Sparkles className="w-8 h-8" />
+            <h1 className="text-3xl md:text-4xl font-bold">Discover New Skills</h1>
+          </div>
+          <p className="text-lg opacity-90 mb-4">Exchange knowledge using credits. Learn from verified experts.</p>
+          <div className="flex gap-4">
+            <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg">
+              <Users className="w-5 h-5" />
+              <span className="font-medium">{videos.length} Courses</span>
+            </div>
+            <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg">
+              <TrendingUp className="w-5 h-5" />
+              <span className="font-medium">AI-Powered Learning</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="mb-8 bg-white rounded-xl shadow-md p-6">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <Input
+                placeholder="Search courses..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 border-gray-200"
+              />
+            </div>
+            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+              <SelectTrigger className="w-full md:w-48">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="programming">Programming</SelectItem>
+                <SelectItem value="design">Design</SelectItem>
+                <SelectItem value="business">Business</SelectItem>
+                <SelectItem value="marketing">Marketing</SelectItem>
+                <SelectItem value="data_science">Data Science</SelectItem>
+                <SelectItem value="languages">Languages</SelectItem>
+                <SelectItem value="music">Music</SelectItem>
+                <SelectItem value="fitness">Fitness</SelectItem>
+                <SelectItem value="cooking">Cooking</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-full md:w-48">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="popular">Most Popular</SelectItem>
+                <SelectItem value="rating">Highest Rated</SelectItem>
+                <SelectItem value="price_low">Price: Low to High</SelectItem>
+                <SelectItem value="price_high">Price: High to Low</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Video Grid */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array(6).fill(0).map((_, i) => (
+              <Card key={i} className="overflow-hidden">
+                <Skeleton className="h-48 w-full" />
+                <CardHeader>
+                  <Skeleton className="h-6 w-3/4" />
+                  <Skeleton className="h-4 w-full mt-2" />
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        ) : filteredVideos.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-gray-500 text-lg">No courses found matching your criteria</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredVideos.map((video) => (
+              <Link key={video.id} to={`${createPageUrl("VideoDetails")}?id=${video.id}`}>
+                <Card className="overflow-hidden hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border-orange-100 h-full">
+                  <div className="relative h-48 bg-gradient-to-br from-orange-200 to-amber-200">
+                    {video.thumbnail_url ? (
+                      <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <Sparkles className="w-16 h-16 text-orange-400" />
+                      </div>
+                    )}
+                    <div className="absolute top-3 left-3">
+                      <Badge className={`${categoryColors[video.category]} border font-medium`}>
+                        {video.category.replace(/_/g, ' ')}
+                      </Badge>
+                    </div>
+                    {video.difficulty_level && (
+                      <div className="absolute top-3 right-3">
+                        <Badge variant="secondary" className="bg-white/90 backdrop-blur-sm">
+                          {video.difficulty_level}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
+                  <CardHeader className="pb-3">
+                    <h3 className="font-bold text-lg line-clamp-2 text-gray-900">{video.title}</h3>
+                    <p className="text-sm text-gray-600 line-clamp-2 mt-1">{video.description}</p>
+                  </CardHeader>
+                  <CardContent className="pb-3">
+                    <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                      <div className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        <span>{video.duration_minutes} min</span>
+                      </div>
+                      {video.average_rating > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                          <span className="font-medium">{video.average_rating.toFixed(1)}</span>
+                          <span className="text-gray-400">({video.total_ratings})</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-600">by {video.provider_name}</span>
+                      {video.total_purchases > 0 && (
+                        <span className="text-xs text-gray-500">{video.total_purchases} students</span>
+                      )}
+                    </div>
+                  </CardContent>
+                  <CardFooter className="pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-between w-full">
+                      <div>
+                        <div className="text-2xl font-bold text-orange-600">{video.base_credits}</div>
+                        <div className="text-xs text-gray-500">credits</div>
+                      </div>
+                      <Button className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white shadow-md">
+                        View Details
+                      </Button>
+                    </div>
+                  </CardFooter>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

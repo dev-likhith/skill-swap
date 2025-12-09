@@ -1,0 +1,438 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import {
+  ArrowLeft,
+  Star,
+  Clock,
+  Users,
+  Award,
+  MessageCircle,
+  Sparkles,
+  Play,
+  CheckCircle,
+  Coins,
+  ShieldCheck
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+export default function VideoDetails() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const urlParams = new URLSearchParams(window.location.search);
+  const videoId = urlParams.get('id');
+  
+  const [includeSupport, setIncludeSupport] = useState(false);
+  const [isPurchasing, setIsPurchasing] = useState(false);
+  const [purchaseError, setPurchaseError] = useState(null);
+
+  const { data: video, isLoading: videoLoading } = useQuery({
+    queryKey: ['video', videoId],
+    queryFn: async () => {
+      const videos = await base44.entities.Video.filter({ id: videoId });
+      return videos[0];
+    },
+    enabled: !!videoId,
+  });
+
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: reviews, isLoading: reviewsLoading } = useQuery({
+    queryKey: ['reviews', videoId],
+    queryFn: () => base44.entities.Review.filter({ video_id: videoId }, '-created_date'),
+    initialData: [],
+    enabled: !!videoId,
+  });
+
+  const { data: existingPurchase } = useQuery({
+    queryKey: ['purchase', videoId, user?.id],
+    queryFn: async () => {
+      if (!user?.id || !videoId) return null;
+      const purchases = await base44.entities.Purchase.filter({ 
+        video_id: videoId, 
+        learner_id: user.id 
+      });
+      return purchases[0] || null;
+    },
+    enabled: !!videoId && !!user?.id,
+  });
+
+  const purchaseMutation = useMutation({
+    mutationFn: async () => {
+      setIsPurchasing(true);
+      setPurchaseError(null);
+
+      const totalCredits = video.base_credits + (includeSupport ? video.support_credits : 0);
+
+      // Check if user has enough credits
+      if (user.wallet_credits < totalCredits) {
+        throw new Error(`Insufficient credits. You need ${totalCredits} credits but only have ${user.wallet_credits}.`);
+      }
+
+      // Create purchase
+      const supportExpiry = includeSupport 
+        ? new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() 
+        : null;
+
+      const purchase = await base44.entities.Purchase.create({
+        video_id: video.id,
+        video_title: video.title,
+        learner_id: user.id,
+        learner_name: user.full_name,
+        provider_id: video.provider_id,
+        credits_paid: totalCredits,
+        support_included: includeSupport,
+        support_credits: includeSupport ? video.support_credits : 0,
+        support_expiry: supportExpiry,
+      });
+
+      // Deduct credits from learner
+      await base44.auth.updateMe({
+        wallet_credits: user.wallet_credits - totalCredits
+      });
+
+      // Create transaction record for learner
+      await base44.entities.Transaction.create({
+        user_id: user.id,
+        transaction_type: 'purchase',
+        amount: -totalCredits,
+        balance_after: user.wallet_credits - totalCredits,
+        related_purchase_id: purchase.id,
+        related_video_id: video.id,
+        description: `Purchased "${video.title}"`,
+        status: 'completed'
+      });
+
+      // Create earning transaction for provider (they'll see it in their history)
+      await base44.entities.Transaction.create({
+        user_id: video.provider_id,
+        transaction_type: 'earning',
+        amount: totalCredits,
+        balance_after: 0, // Will be updated when provider logs in
+        related_purchase_id: purchase.id,
+        related_video_id: video.id,
+        description: `Earned from "${video.title}" purchase`,
+        status: 'pending'
+      });
+
+      // Update video purchase count
+      await base44.entities.Video.update(video.id, {
+        total_purchases: (video.total_purchases || 0) + 1
+      });
+
+      return purchase;
+      },
+      onSuccess: (purchase) => {
+      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+      queryClient.invalidateQueries({ queryKey: ['purchase'] });
+      navigate(`${createPageUrl("MyLearning")}?purchased=true`);
+
+      // Generate AI summary in the background
+      setTimeout(async () => {
+        try {
+          const summary = await base44.integrations.Core.InvokeLLM({
+            prompt: `Generate a comprehensive summary for a course titled "${video.title}" with description: "${video.description}". The summary should include:
+            1. Main topics covered
+            2. Key learning outcomes
+            3. Who this course is best for
+            4. What students will be able to do after completing it
+
+            Make it engaging and informative in 3-4 paragraphs.`,
+          });
+
+          await base44.entities.Purchase.update(purchase.id, {
+            ai_summary: summary
+          });
+
+          queryClient.invalidateQueries({ queryKey: ['purchase'] });
+        } catch (error) {
+          console.error('Error generating AI summary:', error);
+        }
+      }, 1000);
+    },
+    onError: (error) => {
+      setPurchaseError(error.message);
+      setIsPurchasing(false);
+    },
+  });
+
+  if (videoLoading) {
+    return (
+      <div className="min-h-screen p-4 md:p-8">
+        <div className="max-w-6xl mx-auto">
+          <Skeleton className="h-8 w-32 mb-6" />
+          <Skeleton className="h-96 w-full mb-6" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!video) {
+    return (
+      <div className="min-h-screen p-8 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-500 text-lg">Video not found</p>
+          <Button onClick={() => navigate(createPageUrl("Marketplace"))} className="mt-4">
+            Back to Marketplace
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const totalCost = video.base_credits + (includeSupport ? video.support_credits : 0);
+  const hasEnoughCredits = user && user.wallet_credits >= totalCost;
+  const alreadyPurchased = !!existingPurchase;
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-6xl mx-auto">
+        <Button
+          variant="ghost"
+          onClick={() => navigate(createPageUrl("Marketplace"))}
+          className="mb-6 hover:bg-orange-50"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Marketplace
+        </Button>
+
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Main Content */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Video Preview */}
+            <Card className="overflow-hidden border-orange-100 shadow-lg">
+              <div className="relative h-96 bg-gradient-to-br from-orange-200 to-amber-200">
+                {video.thumbnail_url ? (
+                  <img src={video.thumbnail_url} alt={video.title} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Play className="w-24 h-24 text-orange-400" />
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                  <div className="w-20 h-20 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-xl">
+                    <Play className="w-10 h-10 text-orange-500" />
+                  </div>
+                </div>
+              </div>
+              <CardHeader>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">{video.title}</h1>
+                    <p className="text-gray-600">{video.description}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-4">
+                  <Badge className="bg-orange-100 text-orange-700 border-orange-200">
+                    {video.category.replace(/_/g, ' ')}
+                  </Badge>
+                  <Badge variant="outline">{video.difficulty_level}</Badge>
+                  {video.tags?.map((tag, idx) => (
+                    <Badge key={idx} variant="secondary">{tag}</Badge>
+                  ))}
+                </div>
+              </CardHeader>
+            </Card>
+
+            {/* Tabs */}
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="reviews">Reviews ({reviews.length})</TabsTrigger>
+              </TabsList>
+              <TabsContent value="overview" className="mt-6">
+                <Card className="border-orange-100">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-orange-500" />
+                      What You'll Learn
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
+                        <p className="text-gray-700">Master {video.category.replace(/_/g, ' ')} skills from an experienced professional</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
+                        <p className="text-gray-700">Get AI-generated summaries and quizzes to reinforce learning</p>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
+                        <p className="text-gray-700">Access personalized course recommendations</p>
+                      </div>
+                      {includeSupport && (
+                        <div className="flex items-start gap-3">
+                          <CheckCircle className="w-5 h-5 text-green-500 mt-0.5" />
+                          <p className="text-gray-700">48-hour doubt support directly from the instructor</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              <TabsContent value="reviews" className="mt-6">
+                <Card className="border-orange-100">
+                  <CardContent className="pt-6">
+                    {reviewsLoading ? (
+                      <div className="space-y-4">
+                        {Array(3).fill(0).map((_, i) => (
+                          <Skeleton key={i} className="h-24 w-full" />
+                        ))}
+                      </div>
+                    ) : reviews.length === 0 ? (
+                      <p className="text-center text-gray-500 py-8">No reviews yet. Be the first to review!</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {reviews.map((review) => (
+                          <div key={review.id} className="p-4 bg-gray-50 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold">{review.learner_name}</span>
+                              <div className="flex items-center gap-1">
+                                {Array(5).fill(0).map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`w-4 h-4 ${i < review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            {review.comment && (
+                              <p className="text-gray-700">{review.comment}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-6">
+            {/* Purchase Card */}
+            <Card className="border-orange-200 shadow-xl sticky top-8">
+              <CardHeader className="bg-gradient-to-br from-orange-50 to-amber-50">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-3xl font-bold text-orange-600">{video.base_credits}</div>
+                    <div className="text-sm text-gray-600">credits</div>
+                  </div>
+                  <Coins className="w-8 h-8 text-orange-500" />
+                </div>
+
+                {video.support_credits > 0 && (
+                  <div className="flex items-center justify-between py-3 px-4 bg-white rounded-lg border border-orange-200">
+                    <div className="flex items-center gap-3">
+                      <MessageCircle className="w-5 h-5 text-orange-500" />
+                      <div>
+                        <Label htmlFor="support" className="text-sm font-medium">48hr Doubt Support</Label>
+                        <p className="text-xs text-gray-500">+{video.support_credits} credits</p>
+                      </div>
+                    </div>
+                    <Switch
+                      id="support"
+                      checked={includeSupport}
+                      onCheckedChange={setIncludeSupport}
+                      disabled={alreadyPurchased}
+                    />
+                  </div>
+                )}
+
+                {includeSupport && (
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-700 font-medium">
+                      Total: {totalCost} credits
+                    </p>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="pt-6">
+                {purchaseError && (
+                  <Alert variant="destructive" className="mb-4">
+                    <AlertDescription>{purchaseError}</AlertDescription>
+                  </Alert>
+                )}
+
+                {alreadyPurchased ? (
+                  <Button
+                    className="w-full bg-green-500 hover:bg-green-600"
+                    onClick={() => navigate(createPageUrl("MyLearning"))}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Go to My Learning
+                  </Button>
+                ) : (
+                  <Button
+                    className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 shadow-lg"
+                    onClick={() => purchaseMutation.mutate()}
+                    disabled={!hasEnoughCredits || isPurchasing}
+                  >
+                    {isPurchasing ? 'Processing...' : hasEnoughCredits ? 'Purchase Course' : 'Insufficient Credits'}
+                  </Button>
+                )}
+
+                <div className="mt-6 space-y-3 text-sm">
+                  <div className="flex items-center gap-3 text-gray-600">
+                    <Clock className="w-5 h-5 text-orange-500" />
+                    <span>{video.duration_minutes} minutes of content</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-gray-600">
+                    <Users className="w-5 h-5 text-orange-500" />
+                    <span>{video.total_purchases || 0} students enrolled</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-gray-600">
+                    <Sparkles className="w-5 h-5 text-orange-500" />
+                    <span>AI-powered summaries & quizzes</span>
+                  </div>
+                  {video.average_rating > 0 && (
+                    <div className="flex items-center gap-3 text-gray-600">
+                      <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+                      <span>{video.average_rating.toFixed(1)} average rating</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Instructor Card */}
+            <Card className="border-orange-100">
+              <CardHeader>
+                <CardTitle className="text-lg">Instructor</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 bg-gradient-to-br from-orange-400 to-amber-400 rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold text-lg">
+                      {video.provider_name[0].toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="font-semibold">{video.provider_name}</p>
+                    <p className="text-sm text-gray-500">Course Provider</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,310 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import {
+  Video,
+  Plus,
+  DollarSign,
+  Users,
+  MessageCircle,
+  Edit,
+  Eye,
+  TrendingUp,
+  Trash2
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import CreateVideoModal from "../components/teach/CreateVideoModal";
+import DoubtMessagesPanel from "../components/teach/DoubtMessagesPanel";
+
+export default function TeachDashboard() {
+  const queryClient = useQueryClient();
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDoubtsPanel, setShowDoubtsPanel] = useState(false);
+
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: myVideos, isLoading } = useQuery({
+    queryKey: ['myVideos', user?.id],
+    queryFn: () => base44.entities.Video.filter({ provider_id: user.id }, '-created_date'),
+    initialData: [],
+    enabled: !!user?.id,
+  });
+
+  const { data: purchases } = useQuery({
+    queryKey: ['videoPurchases', user?.id],
+    queryFn: () => base44.entities.Purchase.filter({ provider_id: user.id }, '-created_date'),
+    initialData: [],
+    enabled: !!user?.id,
+  });
+
+  const { data: pendingMessages } = useQuery({
+    queryKey: ['pendingDoubts', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      const videoIds = myVideos.map(v => v.id);
+      const allMessages = await base44.entities.DoubtMessage.filter({}, '-created_date');
+      return allMessages.filter(m => videoIds.includes(m.video_id) && !m.is_read);
+    },
+    initialData: [],
+    enabled: !!user?.id && myVideos.length > 0,
+  });
+
+  const totalEarnings = user?.total_earned || 0;
+  const totalStudents = new Set(purchases.map(p => p.learner_id)).size;
+
+  const deleteCourse = useMutation({
+    mutationFn: async (videoId) => {
+      // Delete associated purchases
+      const purchasesToDelete = await base44.entities.Purchase.filter({ video_id: videoId });
+      for (const purchase of purchasesToDelete) {
+        await base44.entities.Purchase.delete(purchase.id);
+      }
+
+      // Delete associated reviews
+      const reviewsToDelete = await base44.entities.Review.filter({ video_id: videoId });
+      for (const review of reviewsToDelete) {
+        await base44.entities.Review.delete(review.id);
+      }
+
+      // Delete associated quizzes
+      const quizzesToDelete = await base44.entities.Quiz.filter({ video_id: videoId });
+      for (const quiz of quizzesToDelete) {
+        await base44.entities.Quiz.delete(quiz.id);
+      }
+
+      // Delete associated doubt messages
+      const messagesToDelete = await base44.entities.DoubtMessage.filter({ video_id: videoId });
+      for (const message of messagesToDelete) {
+        await base44.entities.DoubtMessage.delete(message.id);
+      }
+
+      // Delete the video
+      await base44.entities.Video.delete(videoId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myVideos'] });
+      queryClient.invalidateQueries({ queryKey: ['videos'] });
+      queryClient.invalidateQueries({ queryKey: ['myPurchases'] });
+    },
+  });
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <Video className="w-8 h-8 text-orange-500" />
+              <h1 className="text-3xl font-bold text-gray-900">Teaching Dashboard</h1>
+            </div>
+            <p className="text-gray-600">Manage your courses and track earnings</p>
+          </div>
+          <Button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-gradient-to-r from-orange-500 to-amber-500 shadow-lg"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Create Course
+          </Button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card className="border-green-200 bg-gradient-to-br from-green-50 to-emerald-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-gray-600">Total Earnings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-green-600">{totalEarnings}</div>
+                <DollarSign className="w-8 h-8 text-green-500" />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Credits earned</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-gray-600">Active Courses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-blue-600">
+                  {myVideos.filter(v => v.status === 'published').length}
+                </div>
+                <Video className="w-8 h-8 text-blue-500" />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Published courses</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-gray-600">Total Students</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-purple-600">{totalStudents}</div>
+                <Users className="w-8 h-8 text-purple-500" />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Unique learners</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-gray-600">Pending Doubts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div className="text-3xl font-bold text-orange-600">{pendingMessages.length}</div>
+                <MessageCircle className="w-8 h-8 text-orange-500" />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2 text-xs w-full"
+                onClick={() => setShowDoubtsPanel(true)}
+              >
+                View Messages
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* My Courses Table */}
+        <Card className="border-orange-100 shadow-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Video className="w-5 h-5" />
+              My Courses
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading...</div>
+            ) : myVideos.length === 0 ? (
+              <div className="text-center py-12">
+                <Video className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500 mb-4">No courses yet</p>
+                <Button onClick={() => setShowCreateModal(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Your First Course
+                </Button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Course</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Students</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {myVideos.map((video) => (
+                      <TableRow key={video.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{video.title}</p>
+                            <p className="text-sm text-gray-500 line-clamp-1">{video.description}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {video.category.replace(/_/g, ' ')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-semibold">{video.base_credits}</span>
+                          <span className="text-sm text-gray-500"> credits</span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Users className="w-4 h-4 text-gray-400" />
+                            <span>{video.total_purchases || 0}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            className={
+                              video.status === 'published'
+                                ? 'bg-green-100 text-green-700'
+                                : video.status === 'draft'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : 'bg-gray-100 text-gray-700'
+                            }
+                          >
+                            {video.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Link to={`${createPageUrl("VideoDetails")}?id=${video.id}`}>
+                              <Button variant="ghost" size="icon">
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </Link>
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => {
+                                if (confirm(`Delete "${video.title}"? This cannot be undone.`)) {
+                                  deleteCourse.mutate(video.id);
+                                }
+                              }}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Modals */}
+        {showCreateModal && (
+          <CreateVideoModal
+            onClose={() => setShowCreateModal(false)}
+            userId={user?.id}
+            userName={user?.full_name}
+          />
+        )}
+
+        {showDoubtsPanel && (
+          <DoubtMessagesPanel
+            onClose={() => setShowDoubtsPanel(false)}
+            providerId={user?.id}
+            myVideos={myVideos}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

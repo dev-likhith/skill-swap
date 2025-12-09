@@ -1,0 +1,104 @@
+{
+  "name": "Video",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Course/video title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the course"
+    },
+    "provider_id": {
+      "type": "string",
+      "description": "User ID of the course provider"
+    },
+    "provider_name": {
+      "type": "string",
+      "description": "Name of the provider"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "programming",
+        "design",
+        "business",
+        "marketing",
+        "data_science",
+        "languages",
+        "music",
+        "fitness",
+        "cooking",
+        "other"
+      ],
+      "description": "Course category"
+    },
+    "difficulty_level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced"
+      ],
+      "default": "beginner"
+    },
+    "base_credits": {
+      "type": "number",
+      "description": "Credits needed to purchase the video"
+    },
+    "support_credits": {
+      "type": "number",
+      "description": "Additional credits for 48hr doubt support",
+      "default": 0
+    },
+    "video_url": {
+      "type": "string",
+      "description": "URL to the video file"
+    },
+    "thumbnail_url": {
+      "type": "string",
+      "description": "Thumbnail image URL"
+    },
+    "duration_minutes": {
+      "type": "number",
+      "description": "Video duration in minutes"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Skill tags for the video"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "published",
+        "archived"
+      ],
+      "default": "draft"
+    },
+    "total_purchases": {
+      "type": "number",
+      "default": 0
+    },
+    "average_rating": {
+      "type": "number",
+      "default": 0
+    },
+    "total_ratings": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "title",
+    "description",
+    "provider_id",
+    "provider_name",
+    "category",
+    "base_credits"
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "name": "Quiz",
+  "type": "object",
+  "properties": {
+    "video_id": {
+      "type": "string",
+      "description": "Associated video ID"
+    },
+    "purchase_id": {
+      "type": "string",
+      "description": "Purchase ID for this quiz"
+    },
+    "learner_id": {
+      "type": "string",
+      "description": "Learner taking the quiz"
+    },
+    "questions": {
+      "type": "array",
+      "description": "AI-generated quiz questions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "correct_answer": {
+            "type": "number",
+            "description": "Index of correct option"
+          },
+          "explanation": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "total_questions": {
+      "type": "number",
+      "default": 5
+    },
+    "score": {
+      "type": "number",
+      "description": "Quiz score (0-100)"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "time_taken_seconds": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "video_id",
+    "purchase_id",
+    "learner_id",
+    "questions"
+  ]
+}

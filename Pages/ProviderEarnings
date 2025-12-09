@@ -1,0 +1,61 @@
+import React, { useEffect } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+// Component that processes pending earnings for the logged-in provider
+export default function ProviderEarningsProcessor() {
+  const queryClient = useQueryClient();
+  
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: pendingEarnings } = useQuery({
+    queryKey: ['pendingEarnings', user?.id],
+    queryFn: () => base44.entities.Transaction.filter({ 
+      user_id: user.id, 
+      transaction_type: 'earning',
+      status: 'pending'
+    }),
+    initialData: [],
+    enabled: !!user?.id,
+  });
+
+  const processPendingEarnings = useMutation({
+    mutationFn: async () => {
+      if (!pendingEarnings || pendingEarnings.length === 0) return;
+
+      const totalToAdd = pendingEarnings.reduce((sum, txn) => sum + txn.amount, 0);
+      const newBalance = (user.wallet_credits || 0) + totalToAdd;
+      const newEarned = (user.total_earned || 0) + totalToAdd;
+
+      // Update user balance
+      await base44.auth.updateMe({
+        wallet_credits: newBalance,
+        total_earned: newEarned
+      });
+
+      // Update all pending transactions to completed
+      for (const txn of pendingEarnings) {
+        await base44.entities.Transaction.update(txn.id, {
+          status: 'completed',
+          balance_after: newBalance
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+      queryClient.invalidateQueries({ queryKey: ['pendingEarnings'] });
+      queryClient.invalidateQueries({ queryKey: ['myTransactions'] });
+    },
+  });
+
+  useEffect(() => {
+    if (pendingEarnings && pendingEarnings.length > 0) {
+      processPendingEarnings.mutate();
+    }
+  }, [pendingEarnings?.length]);
+
+  return null; // This is a background processor component
+}

@@ -1,0 +1,58 @@
+r{
+  "name": "Transaction",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "User involved in transaction"
+    },
+    "transaction_type": {
+      "type": "string",
+      "enum": [
+        "credit_add",
+        "purchase",
+        "earning",
+        "refund",
+        "admin_adjustment"
+      ],
+      "description": "Type of transaction"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Credit amount (positive for credit, negative for debit)"
+    },
+    "balance_after": {
+      "type": "number",
+      "description": "User balance after transaction"
+    },
+    "related_purchase_id": {
+      "type": "string",
+      "description": "Purchase ID if related to a video purchase"
+    },
+    "related_video_id": {
+      "type": "string",
+      "description": "Video ID if transaction involves a video"
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable transaction description"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "pending",
+        "escrowed",
+        "refunded"
+      ],
+      "default": "completed"
+    }
+  },
+  "required": [
+    "user_id",
+    "transaction_type",
+    "amount",
+    "balance_after",
+    "description"
+  ]
+}

@@ -1,0 +1,458 @@
+import React, { useState } from "react";
+import { base44 } from "@/api/base44Client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import {
+  BookOpen,
+  Sparkles,
+  Brain,
+  MessageCircle,
+  Star,
+  Award,
+  TrendingUp,
+  Play,
+  CheckCircle,
+  Send,
+  Clock,
+  AlertCircle,
+  ExternalLink
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { format, differenceInHours } from "date-fns";
+import AISummaryCard from "../components/learning/AISummaryCard";
+import QuizSection from "../components/learning/QuizSection";
+import RecommendationsSection from "../components/learning/RecommendationsSection";
+import ReviewModal from "../components/learning/ReviewModal";
+
+export default function MyLearning() {
+  const queryClient = useQueryClient();
+  const [selectedPurchase, setSelectedPurchase] = useState(null);
+  const [newMessage, setNewMessage] = useState("");
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+
+  const { data: user } = useQuery({
+    queryKey: ['currentUser'],
+    queryFn: () => base44.auth.me(),
+  });
+
+  const { data: purchases, isLoading } = useQuery({
+    queryKey: ['myPurchases', user?.id],
+    queryFn: () => base44.entities.Purchase.filter({ learner_id: user.id }, '-created_date'),
+    initialData: [],
+    enabled: !!user?.id,
+  });
+
+  const { data: reviews } = useQuery({
+    queryKey: ['myReviews', user?.id],
+    queryFn: () => base44.entities.Review.filter({ learner_id: user.id }),
+    initialData: [],
+    enabled: !!user?.id,
+  });
+
+  const activePurchase = selectedPurchase || purchases[0];
+
+  const { data: activeVideo } = useQuery({
+    queryKey: ['activeVideo', activePurchase?.video_id],
+    queryFn: async () => {
+      const videos = await base44.entities.Video.filter({ id: activePurchase.video_id });
+      return videos[0];
+    },
+    enabled: !!activePurchase?.video_id,
+  });
+
+  const { data: messages, isLoading: messagesLoading } = useQuery({
+    queryKey: ['doubtMessages', activePurchase?.id],
+    queryFn: () => base44.entities.DoubtMessage.filter({ purchase_id: activePurchase.id }, 'created_date'),
+    initialData: [],
+    enabled: !!activePurchase?.id,
+  });
+
+  const sendMessage = useMutation({
+    mutationFn: async (messageText) => {
+      return await base44.entities.DoubtMessage.create({
+        purchase_id: activePurchase.id,
+        video_id: activePurchase.video_id,
+        sender_id: user.id,
+        sender_name: user.full_name,
+        sender_role: 'learner',
+        message: messageText,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['doubtMessages'] });
+      setNewMessage("");
+    },
+  });
+
+  const updateProgress = useMutation({
+    mutationFn: async (percentage) => {
+      await base44.entities.Purchase.update(activePurchase.id, {
+        completion_percentage: percentage
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['myPurchases'] });
+    },
+  });
+
+  const handleSendMessage = () => {
+    if (newMessage.trim()) {
+      sendMessage.mutate(newMessage);
+    }
+  };
+
+  const handleWatchVideo = () => {
+    setShowVideoPlayer(true);
+    // Update progress to 50% when they start watching
+    if (activePurchase && (activePurchase.completion_percentage || 0) < 50) {
+      updateProgress.mutate(50);
+    }
+  };
+
+  const handleCompleteVideo = () => {
+    if (activePurchase) {
+      updateProgress.mutate(100);
+    }
+    setShowVideoPlayer(false);
+  };
+
+  // Check if support has expired
+  const supportExpiry = activePurchase?.support_expiry ? new Date(activePurchase.support_expiry) : null;
+  const now = new Date();
+  const hoursRemaining = supportExpiry ? differenceInHours(supportExpiry, now) : 0;
+  const isExpired = hoursRemaining <= 0;
+
+  return (
+    <div className="min-h-screen p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <BookOpen className="w-8 h-8 text-orange-500" />
+            <h1 className="text-3xl font-bold text-gray-900">My Learning</h1>
+          </div>
+          <p className="text-gray-600">Track your progress and continue learning</p>
+        </div>
+
+        {isLoading ? (
+          <div className="grid lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <Skeleton className="h-96 w-full" />
+            </div>
+            <Skeleton className="h-96 w-full" />
+          </div>
+        ) : purchases.length === 0 ? (
+          <Card className="border-orange-100 p-12 text-center">
+            <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">No courses yet</h3>
+            <p className="text-gray-500 mb-6">Start your learning journey by purchasing a course</p>
+            <Link to={createPageUrl("Marketplace")}>
+              <Button className="bg-gradient-to-r from-orange-500 to-amber-500">
+                Browse Marketplace
+              </Button>
+            </Link>
+          </Card>
+        ) : (
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Main Content */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* Active Course */}
+              {activePurchase && (
+                <Card className="border-orange-200 shadow-lg overflow-hidden">
+                  {showVideoPlayer && activeVideo ? (
+                    <div className="bg-black">
+                      {activeVideo.video_url ? (
+                        <div className="relative aspect-video">
+                          <video 
+                            controls 
+                            className="w-full h-full"
+                            onEnded={handleCompleteVideo}
+                          >
+                            <source src={activeVideo.video_url} type="video/mp4" />
+                            Your browser does not support the video tag.
+                          </video>
+                        </div>
+                      ) : (
+                        <div className="aspect-video flex items-center justify-center bg-gray-900">
+                          <div className="text-center text-white p-8">
+                            <AlertCircle className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                            <p className="text-lg mb-4">Video file not available</p>
+                            <p className="text-sm text-gray-400 mb-6">
+                              The instructor hasn't uploaded the video file yet, or it may be hosted externally.
+                            </p>
+                            <Button
+                              variant="outline"
+                              onClick={() => setShowVideoPlayer(false)}
+                              className="text-white border-white hover:bg-white hover:text-black"
+                            >
+                              Close Player
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-48 bg-gradient-to-br from-orange-300 to-amber-300 flex items-center justify-center relative group cursor-pointer"
+                         onClick={handleWatchVideo}>
+                      <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-all" />
+                      <div className="relative">
+                        <div className="w-20 h-20 bg-white/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
+                          <Play className="w-10 h-10 text-orange-500 ml-1" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-2xl mb-2">{activePurchase.video_title}</CardTitle>
+                        <div className="flex items-center gap-3 text-sm text-gray-600">
+                          <Badge variant="secondary">
+                            {activePurchase.completion_percentage || 0}% Complete
+                          </Badge>
+                          {activePurchase.quiz_completed && (
+                            <Badge className="bg-green-100 text-green-700">
+                              <CheckCircle className="w-3 h-3 mr-1" />
+                              Quiz Passed
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <Progress value={activePurchase.completion_percentage || 0} className="mt-4" />
+                  </CardHeader>
+                  <CardContent>
+                    {showVideoPlayer ? (
+                      <div className="flex gap-3">
+                        <Button 
+                          variant="outline"
+                          onClick={() => setShowVideoPlayer(false)}
+                          className="flex-1"
+                        >
+                          Close Player
+                        </Button>
+                        <Button 
+                          onClick={handleCompleteVideo}
+                          className="flex-1 bg-gradient-to-r from-green-500 to-emerald-500"
+                        >
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Mark as Complete
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button 
+                        onClick={handleWatchVideo}
+                        className="w-full bg-gradient-to-r from-orange-500 to-amber-500"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        {activePurchase.completion_percentage > 0 ? 'Continue Learning' : 'Start Learning'}
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* AI Summary */}
+              {activePurchase && !showVideoPlayer && (
+                <AISummaryCard purchase={activePurchase} />
+              )}
+
+              {/* Quiz Section */}
+              {activePurchase && !showVideoPlayer && (
+                <QuizSection purchase={activePurchase} />
+              )}
+
+              {/* Review Section */}
+              {activePurchase && !showVideoPlayer && activePurchase.completion_percentage >= 100 && !activePurchase.has_reviewed && (
+                <Card className="border-purple-200 shadow-lg">
+                  <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50">
+                    <CardTitle className="flex items-center gap-2 text-lg">
+                      <Star className="w-5 h-5 text-purple-500" />
+                      Review This Course
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    <p className="text-gray-600 mb-4">
+                      You've completed this course! Share your experience to help other learners.
+                    </p>
+                    <Button
+                      onClick={() => setShowReviewModal(true)}
+                      className="w-full bg-gradient-to-r from-purple-500 to-pink-500"
+                    >
+                      <Star className="w-4 h-4 mr-2" />
+                      Write a Review
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {activePurchase && activePurchase.has_reviewed && !showVideoPlayer && (
+                <Alert className="bg-green-50 border-green-200">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                  <AlertDescription className="text-green-700">
+                    Thank you for reviewing this course!
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Doubt Support */}
+              {activePurchase?.support_included && !showVideoPlayer && (
+                <Card className="border-pink-200 shadow-lg">
+                  <CardHeader className="bg-gradient-to-r from-pink-50 to-rose-50">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2 text-lg">
+                        <MessageCircle className="w-5 h-5 text-pink-500" />
+                        Doubt Support
+                      </CardTitle>
+                      <Badge variant={isExpired ? "destructive" : "secondary"} className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {isExpired ? 'Expired' : `${hoursRemaining}h left`}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    {isExpired && (
+                      <Alert variant="destructive" className="mb-4">
+                        <AlertCircle className="w-4 h-4" />
+                        <AlertDescription>
+                          Your 48-hour support period has expired. You can no longer send messages.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
+                    <div className="space-y-4 mb-4 max-h-96 overflow-y-auto">
+                      {messages.length === 0 ? (
+                        <p className="text-center text-gray-500 py-8">
+                          No messages yet. Ask your first question!
+                        </p>
+                      ) : (
+                        messages.map((message) => (
+                          <div
+                            key={message.id}
+                            className={`p-4 rounded-lg ${
+                              message.sender_role === 'learner'
+                                ? 'bg-blue-50 ml-4'
+                                : 'bg-green-50 mr-4'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-semibold text-sm">{message.sender_name}</span>
+                              <span className="text-xs text-gray-500">
+                                {format(new Date(message.created_date), 'MMM d, HH:mm')}
+                              </span>
+                            </div>
+                            <p className="text-gray-700 text-sm">{message.message}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {!isExpired && (
+                      <div className="space-y-3">
+                        <Textarea
+                          placeholder="Ask your doubt or question..."
+                          value={newMessage}
+                          onChange={(e) => setNewMessage(e.target.value)}
+                          rows={3}
+                          className="resize-none"
+                        />
+                        <Button
+                          onClick={handleSendMessage}
+                          disabled={!newMessage.trim() || sendMessage.isPending}
+                          className="w-full bg-gradient-to-r from-pink-500 to-rose-500"
+                        >
+                          <Send className="w-4 h-4 mr-2" />
+                          {sendMessage.isPending ? 'Sending...' : 'Send Message'}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Sidebar */}
+            <div className="space-y-6">
+              {/* All Courses */}
+              <Card className="border-orange-100 shadow-md">
+                <CardHeader>
+                  <CardTitle className="text-lg">My Courses</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {purchases.map((purchase) => (
+                    <button
+                      key={purchase.id}
+                      onClick={() => {
+                        setSelectedPurchase(purchase);
+                        setShowVideoPlayer(false);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg border transition-all ${
+                        activePurchase?.id === purchase.id
+                          ? 'border-orange-300 bg-orange-50'
+                          : 'border-gray-200 hover:border-orange-200'
+                      }`}
+                    >
+                      <p className="font-medium text-sm line-clamp-2">{purchase.video_title}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <Progress value={purchase.completion_percentage || 0} className="flex-1 h-1" />
+                        <span className="text-xs text-gray-500">{purchase.completion_percentage || 0}%</span>
+                      </div>
+                    </button>
+                  ))}
+                </CardContent>
+              </Card>
+
+              {/* Recommendations */}
+              {!showVideoPlayer && <RecommendationsSection userId={user?.id} />}
+
+              {/* Stats */}
+              <Card className="border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-orange-500" />
+                    Your Progress
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Courses Enrolled</span>
+                    <span className="text-2xl font-bold text-orange-600">{purchases.length}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Quizzes Completed</span>
+                    <span className="text-2xl font-bold text-green-600">
+                      {purchases.filter(p => p.quiz_completed).length}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Reviews Given</span>
+                    <span className="text-2xl font-bold text-purple-600">{reviews.length}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
+        </div>
+
+        {/* Review Modal */}
+        {showReviewModal && activePurchase && (
+        <ReviewModal
+          purchase={activePurchase}
+          onClose={() => setShowReviewModal(false)}
+          userId={user.id}
+          userName={user.full_name}
+        />
+        )}
+        </div>
+        );
+        }

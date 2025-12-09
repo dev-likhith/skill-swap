@@ -1,0 +1,72 @@
+{
+  "name": "Purchase",
+  "type": "object",
+  "properties": {
+    "video_id": {
+      "type": "string",
+      "description": "ID of the purchased video"
+    },
+    "video_title": {
+      "type": "string",
+      "description": "Title of the video"
+    },
+    "learner_id": {
+      "type": "string",
+      "description": "ID of the learner"
+    },
+    "learner_name": {
+      "type": "string",
+      "description": "Name of the learner"
+    },
+    "provider_id": {
+      "type": "string",
+      "description": "ID of the provider"
+    },
+    "credits_paid": {
+      "type": "number",
+      "description": "Total credits paid"
+    },
+    "support_included": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether doubt support is included"
+    },
+    "support_credits": {
+      "type": "number",
+      "default": 0
+    },
+    "support_expiry": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When support expires (48 hours from purchase)"
+    },
+    "ai_summary": {
+      "type": "string",
+      "description": "AI-generated summary of the video"
+    },
+    "completion_percentage": {
+      "type": "number",
+      "default": 0,
+      "description": "How much of the video has been watched"
+    },
+    "quiz_completed": {
+      "type": "boolean",
+      "default": false
+    },
+    "quiz_score": {
+      "type": "number",
+      "description": "Score from the AI-generated quiz"
+    },
+    "has_reviewed": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "video_id",
+    "video_title",
+    "learner_id",
+    "provider_id",
+    "credits_paid"
+  ]
+}
